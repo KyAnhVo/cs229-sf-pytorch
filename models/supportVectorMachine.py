@@ -1,3 +1,4 @@
+from numpy import float32
 import torch
 from typing import Callable
 
@@ -7,6 +8,16 @@ def seperate():
     print()
     print('-' * 100)
     print()
+
+########################
+### Test inputs ########
+########################
+
+xInputTest = torch.tensor([[0, 2, 4, 6, 8]], dtype = torch.float32, device=device).T
+xTest = torch.tensor([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11, 12, 13, 14, 15]], dtype= torch.float32, device=device)
+yTest = torch.tensor([[-1], [-1], [1]], dtype=torch.float32, device=device)
+alphaTest = torch.tensor([[2], [4], [1]], dtype=torch.float32, device=device)
+b = 4.5
 
 ########################
 ### Kernel functions ###
@@ -34,11 +45,8 @@ def predictionGaussianKernel(xTraining: torch.Tensor, xInput: torch.Tensor, vari
     return K
 
 print('Test predictionGaussianKernel')
-xTest = torch.tensor([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11, 12, 13, 14, 15]], dtype= torch.float32, device=device)
-xInputTest = torch.tensor([[0, 2, 4, 6, 8]], dtype = torch.float32, device=device).T
-print(f'xTest = {xTest.tolist()}\nxInputTest = {xInputTest.flatten().tolist()}')
-print(f'gaussian kernel: {predictionGaussianKernel(xTest, xInputTest, variance= 4).tolist()}')
-print('Exit test')
+print(f'xTest = {xTest}\nxInputTest = {xInputTest.flatten()}')
+print(f'gaussian kernel: {predictionGaussianKernel(xTest, xInputTest, variance= 4)}')
 seperate()
 
 def trainingGaussianKernel(x: torch.Tensor, variance: float) -> torch.Tensor:
@@ -58,7 +66,7 @@ def trainingGaussianKernel(x: torch.Tensor, variance: float) -> torch.Tensor:
     
     # We use the property |x - y|^2 = |x|^2 + |y|^2 - 2<x, y>
     # Applying to matrix, we havexLen
-    # xLen(expressed s.t. every row is the same) + xLen(expressed s.t. every column is the same) + x @ X.T (m, m)
+    # xLen(every row is the same) + xLen(every column is the same) - 2 * x @ X.T (m, m)
     # So each element [i][j] is |x(i) - x(j)|^2
     kernel = xLen.unsqueeze(1).expand(size=(m, m)) + xLen.unsqueeze(0).expand(size=(m, m)) - 2 * (x @ x.T)
 
@@ -66,10 +74,8 @@ def trainingGaussianKernel(x: torch.Tensor, variance: float) -> torch.Tensor:
     return torch.exp(kernel / (-2 * variance))
 
 print('Test trainingGaussianKernel')
-xTest = torch.tensor([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11, 12, 13, 14, 15]], dtype= torch.float32, device=device)
-print(f'xTest = {xTest.tolist()}')
-print(f'gaussian kernel: {trainingGaussianKernel(xTest, 4).tolist()}')
-print('Exit test')
+print(f'xTest = {xTest}')
+print(f'gaussian kernel: {trainingGaussianKernel(xTest, 4)}')
 seperate()
 
 def gaussianKernel(x1: torch.Tensor, x2: torch.Tensor, variance: float) -> float:
@@ -96,57 +102,15 @@ print('Test gaussianKernel')
 print('\n1. test on 1d array')
 x1Test = torch.tensor([1, 2, 3, 4, 5], dtype=torch.float32, device=device)
 x2Test = torch.tensor([1, 3, 5, 7, 9], dtype=torch.float32, device=device)
-print(f'x1 = {x1Test}\nx2 = {x2Test}')
+print(f'x1 = {x1Test.flatten()}\nx2 = {x2Test.flatten()}')
 print(f'gaussian kernel: {gaussianKernel(x1Test, x2Test, 4)}')
 print('\n2. test on 2d array')
 x1Test = x1Test.unsqueeze(dim=1)
 x2Test = x2Test.unsqueeze(dim=1)
-print(f'x1 = {x1Test}\nx2 = {x2Test}')
+print(f'x1 = {x1Test.flatten()}\nx2 = {x2Test.flatten()}')
 print(f'gaussian kernel: {gaussianKernel(x1Test, x2Test, 4)}')
 seperate()
 
-def trainPrediction(x: torch.Tensor, y: torch.Tensor, alpha: torch.Tensor, b: float, kernel: Callable[[torch.Tensor], torch.Tensor]) -> torch.Tensor:
-    ''' returns the prediction matrix U given x, y, alpha, b
-
-    Args:
-        x       (torch.Tensor): input matrix (m, n)
-        y       (torch.Tensor): output vector (m, 1)
-        alpha   (torch.Tensor): Lagrange parameter vecotr (m, 1)
-        b       (float): y-intercept
-        kernel  (Callable[[torch.Tensor], torch.Tensor]): Kernel function applied on all x[i], x[j]
-    Returns:
-        prediction matrix U (m, 1) where U[i] = SUM_{j = 1 .. n}{alpha[j] * y[j] * K(x[i], x[j])}
-    '''
-    m, _ = x.size()
-    assert(y.size() == (m, 1)), f'y.size() = {y.size()} not (m, 1)'
-    assert(alpha.size() == (m, 1)), f'alpha.size() = {alpha.size()} not (m, 1)'
-
-    K = kernel(x)       # (m, m)
-    Beta = alpha * y    # (m, 1)
-    U = K @ Beta
-    U += b
-    return U
-
-##################################
-### Functions dedicated to SMO ###
-##################################
-
-def errorVector(u: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-    ''' returns the error vector E = U - Y s.t. E[i] = u(i) - y(i)
-
-    Also handles size mismatch assertions
-
-    Args:
-        u: prediction vector, (m, 1)
-        y: training vector, (m, 1)
-    Returns:
-        error vector u - y
-    '''
-
-    assert(u.size() == y.size()), f'size mismatch: u = {u.size()}, y = {y.size()}'
-    assert(u.dim() == 1 or (u.dim() == 2 and u.size()[1] == 1)), f'expect collumn vector or array'
-
-    return u - y
 
 def prediction(
         xInput: torch.Tensor,
@@ -169,10 +133,75 @@ def prediction(
     Beta = alpha * y        #(m, 1)
     U = (K.T @ Beta).flatten()
     U += b
-    
-    assert(U.size() == (1, 1)), 'input problems'
-    
-    return U.tolist()[0]
+    return U.item()
+
+print('Test prediction')
+kernel = lambda x, y: predictionGaussianKernel(xTraining=x, xInput=y, variance=4)
+print(f'input = {xInputTest.flatten()}\nx = {xTest}\ny = {yTest.flatten()}\nalpha = {alphaTest.flatten()}')
+print(f'prediction is: {prediction(xInput=xInputTest, x=xTest, y=yTest, alpha=alphaTest, b=b, kernel=kernel)}')
+seperate()
+
+##################################
+### Functions dedicated to SMO ###
+##################################
+
+def trainPrediction(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    alpha: torch.Tensor,
+    b: float,
+    kernel: Callable[[torch.Tensor], torch.Tensor]
+) -> torch.Tensor:
+    ''' returns the prediction matrix U given x, y, alpha, b
+
+    Args:
+        x       (torch.Tensor): input matrix (m, n)
+        y       (torch.Tensor): output vector (m, 1)
+        alpha   (torch.Tensor): Lagrange parameter vecotr (m, 1)
+        b       (float): y-intercept
+        kernel  (Callable[[torch.Tensor], torch.Tensor]): Kernel function applied on all x[i], x[j]
+    Returns:
+        prediction matrix U (m, 1) where U[i] = SUM_{j = 1 .. n}{alpha[j] * y[j] * K(x[i], x[j])}
+    '''
+    m, _ = x.size()
+    assert(y.size() == (m, 1)), f'y.size() = {y.size()} not (m, 1)'
+    assert(alpha.size() == (m, 1)), f'alpha.size() = {alpha.size()} not (m, 1)'
+
+    K = kernel(x)       # (m, m)
+    Beta = alpha * y    # (m, 1)
+    U = K @ Beta
+    U += b
+    return U
+
+print('Test trainPrediction')
+print(f'input = {xInputTest}\nx = {xTest}\ny = {yTest.flatten()}\nalpha = {alphaTest.flatten()}\nb = {b}')
+kernel = lambda x: trainingGaussianKernel(x, 4)
+uTest = trainPrediction(x= xTest, y= yTest, alpha= alphaTest, b= b, kernel= kernel)
+print(f'OUTPUT: U = {uTest.flatten()}')
+seperate()
+
+def errorVector(u: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    ''' returns the error vector E = U - Y s.t. E[i] = u(i) - y(i)
+
+    Also handles size mismatch assertions
+
+    Args:
+        u: prediction vector, (m, 1)
+        y: training vector, (m, 1)
+    Returns:
+        error vector u - y
+    '''
+
+    assert(u.size() == y.size()), f'size mismatch: u = {u.size()}, y = {y.size()}'
+    assert(u.dim() == 1 or (u.dim() == 2 and u.size()[1] == 1)), f'expect collumn vector or array'
+
+    return u - y
+
+print('Test errorVector')
+print(f'U = {uTest.flatten()}\nY = {yTest.flatten()}')
+eTest = errorVector(uTest, yTest)
+print(f'OUTPUT: E = {eTest.flatten()}')
+seperate()
 
 
 def updateLagrangians(
@@ -200,7 +229,6 @@ def updateLagrangians(
         nothing, though alpha[i1] and alpha[i2] are changed.
     '''
 
-    print('\nenter update lagrangian')
     alpha1, alpha2 = float(alpha[i1, 0]), float(alpha[i2, 0])
     y1, y2 = float(y[i1, 0]), float(y[i2, 0])
     x1, x2 = x[i1], x[i2]
@@ -226,6 +254,13 @@ def updateLagrangians(
     alpha2New = max(L, min(H, alpha2New))
     alpha1New = alpha1  + y1 * y2 * (alpha2 - alpha2New)
     alpha[i1, 0], alpha[i2, 0] = alpha1New, alpha2New
-    print('exit update lagrangians\n')
 
-
+print('Test updateLagrangians')
+C = 4 
+i1, i2 = 2, 0
+kernel = lambda x1, x2: gaussianKernel(x1, x2, 4)
+print(f'Params: C = {C}, i1 = {i1}, i2 = {i2}')
+print(f'x = {xTest}\ny = {yTest.flatten()}\nalpha = {alphaTest.flatten()}\nE = {eTest.flatten()}')
+updateLagrangians(x= xTest, y= yTest, alpha= alphaTest, E= eTest, C= C, i1= i1, i2= i2, kernel= kernel)
+print(f'\nnew Lagrangian vector:\nalpha = {alphaTest.flatten()}')
+seperate()
