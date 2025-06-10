@@ -1,6 +1,6 @@
-from numpy import float32
+from math import inf
 import torch
-from typing import Callable
+from typing import Callable, Tuple
 
 # boilerplate stuffs
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -49,6 +49,8 @@ print(f'xTest = {xTest}\nxInputTest = {xInputTest.flatten()}')
 print(f'gaussian kernel: {predictionGaussianKernel(xTest, xInputTest, variance= 4)}')
 seperate()
 
+#########################################################################################################################################
+
 def trainingGaussianKernel(x: torch.Tensor, variance: float) -> torch.Tensor:
     ''' returns the training gaussian kernel matrix on matrix x, (m, n)
 
@@ -77,6 +79,8 @@ print('Test trainingGaussianKernel')
 print(f'xTest = {xTest}')
 print(f'gaussian kernel: {trainingGaussianKernel(xTest, 4)}')
 seperate()
+
+#########################################################################################################################################
 
 def gaussianKernel(x1: torch.Tensor, x2: torch.Tensor, variance: float) -> float:
     ''' return the gaussian kernel dot product of 2 vectors, (n, 1) x (n, 1)
@@ -111,6 +115,7 @@ print(f'x1 = {x1Test.flatten()}\nx2 = {x2Test.flatten()}')
 print(f'gaussian kernel: {gaussianKernel(x1Test, x2Test, 4)}')
 seperate()
 
+#########################################################################################################################################
 
 def prediction(
         xInput: torch.Tensor,
@@ -140,6 +145,8 @@ kernel = lambda x, y: predictionGaussianKernel(xTraining=x, xInput=y, variance=4
 print(f'input = {xInputTest.flatten()}\nx = {xTest}\ny = {yTest.flatten()}\nalpha = {alphaTest.flatten()}')
 print(f'prediction is: {prediction(xInput=xInputTest, x=xTest, y=yTest, alpha=alphaTest, b=b, kernel=kernel)}')
 seperate()
+
+#########################################################################################################################################
 
 ##################################
 ### Functions dedicated to SMO ###
@@ -180,6 +187,8 @@ uTest = trainPrediction(x= xTest, y= yTest, alpha= alphaTest, b= b, kernel= kern
 print(f'OUTPUT: U = {uTest.flatten()}')
 seperate()
 
+#########################################################################################################################################
+
 def errorVector(u: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     ''' returns the error vector E = U - Y s.t. E[i] = u(i) - y(i)
 
@@ -203,6 +212,7 @@ eTest = errorVector(uTest, yTest)
 print(f'OUTPUT: E = {eTest.flatten()}')
 seperate()
 
+#########################################################################################################################################
 
 def updateLagrangians(
         x: torch.Tensor,
@@ -212,8 +222,8 @@ def updateLagrangians(
         C: float,
         i1: int,
         i2: int,
-        kernel: Callable[[torch.Tensor, torch.Tensor], float],
-) -> None:
+        kernel: Callable[[torch.Tensor, torch.Tensor], float]
+) -> bool:
     ''' Given i1 and i2, update the Lagrangian
 
     Args:
@@ -226,7 +236,7 @@ def updateLagrangians(
         i2: second Lagrangian
         kernel: K(x1, x2)-> <K(x1), K(x2)>
     Returns:
-        nothing, though alpha[i1] and alpha[i2] are changed.
+        old alpha[i1] and alpha[i2], though alpha[i1] and alpha[i2] are changed.
     '''
 
     alpha1, alpha2 = float(alpha[i1, 0]), float(alpha[i2, 0])
@@ -242,18 +252,19 @@ def updateLagrangians(
         L = max(0, alpha1 + alpha2 - C)
         H = min(C,     alpha1 + alpha2)
     if L == H:
-        return
+        # TODO: solve the L == H case.
+        pass
 
 
     eta = kernel(x1, x1) + kernel(x2, x2) - 2 * kernel(x1, x2)
     if eta <= 0:
-        return
-
+        return False
 
     alpha2New = alpha2 + y2 * (E1 - E2) / eta
     alpha2New = max(L, min(H, alpha2New))
     alpha1New = alpha1  + y1 * y2 * (alpha2 - alpha2New)
     alpha[i1, 0], alpha[i2, 0] = alpha1New, alpha2New
+    return True
 
 print('Test updateLagrangians')
 C = 4 
@@ -261,6 +272,53 @@ i1, i2 = 2, 0
 kernel = lambda x1, x2: gaussianKernel(x1, x2, 4)
 print(f'Params: C = {C}, i1 = {i1}, i2 = {i2}')
 print(f'x = {xTest}\ny = {yTest.flatten()}\nalpha = {alphaTest.flatten()}\nE = {eTest.flatten()}')
+alpha1Prev, alpha2Prev = alphaTest[i1, 0].item(), alphaTest[i2, 0].item()
 updateLagrangians(x= xTest, y= yTest, alpha= alphaTest, E= eTest, C= C, i1= i1, i2= i2, kernel= kernel)
 print(f'\nnew Lagrangian vector:\nalpha = {alphaTest.flatten()}')
+print(f'Old alphas: {alpha1Prev} {alpha2Prev}')
 seperate()
+
+#########################################################################################################################################
+
+def getB(
+    alpha: torch.Tensor,
+    x: torch.Tensor,
+    y: torch.Tensor,
+    b: float,
+    E: torch.Tensor,
+    C: float,
+    i1: int,
+    i2: int,
+    alpha1Prev: float,
+    alpha2Prev: float,
+    kernel: Callable[[torch.Tensor, torch.Tensor], float],
+) -> float:
+    
+    a1, a2 = alpha[i1, 0].item(), alpha[i2, 0].item()
+    x1, x2 = x[i1], x[i2]
+    y1, y2 = y[i1, 0].item(), y[i2, 0].item()
+    E1, E2 = E[i1, 0].item(), E[i2, 0].item()
+    k11, k22, k12 = kernel(x1, x1), kernel(x2, x2), kernel(x1, x2)
+
+    b1 = E1 + y1 * (a1 - alpha1Prev) * k11 + y2 * (a2 - alpha2Prev) * k12 + b
+    b2 = E2 + y1 * (a1 - alpha1Prev) * k12 + y2 * (a2 - alpha2Prev) * k22 + b
+
+    unbounded1 = 0 < a1 and a1 < C
+    unbounded2 = 0 < a2 and a2 < C
+    
+    if unbounded1:
+        return b1
+    elif unbounded2:
+        return b2
+    else: # both bounded
+        return 0.5 * (b1 + b2)
+
+print('Test getB')
+kernel = lambda x1, x2: gaussianKernel(x1, x2, 4)
+print(f'Params: C = {C}, i1 = {i1}, i2 = {i2}, b = {b}')
+print(f'x = {xTest}\ny = {yTest.flatten()}\nalpha = {alphaTest.flatten()}\nE = {eTest.flatten()}')
+print(f'alpha1Prev = {alpha1Prev}, alpha2Prev = {alpha2Prev}')
+b = getB(alpha=alphaTest, x=xTest, y=yTest, b=b, E=eTest, C=C, i1=i1, i2=i2, alpha1Prev=alpha1Prev, alpha2Prev=alpha2Prev, kernel= lambda x1, x2: gaussianKernel(x1, x2, 4))
+print(f'NEW B: b = {b}')
+seperate()
+
