@@ -6,10 +6,12 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 n = 300
 m = 5000
 
-# Kernel function
+###
+### Kernel functions
+###
 
-def gaussianKernel(xTraining: torch.Tensor, xInput: torch.Tensor, variance: float) -> :
-    ''' returns the Gaussian (RBF) Kernel of the given column vectors
+def predictionGaussianKernel(xTraining: torch.Tensor, xInput: torch.Tensor, variance: float) -> torch.Tensor:
+    ''' returns the Gaussian (RBF) Kernel of the given column vectors, (m, n) x (n, 1)
     
     Args:
         xTraining (torch.Tensor):  training data (m, n)
@@ -20,19 +22,19 @@ def gaussianKernel(xTraining: torch.Tensor, xInput: torch.Tensor, variance: floa
 
     '''
     _, n = xTraining.size()
-    assert(xInput.size() == (n, 1)), f'input mismatch: {x1.size()}, {x2.size()}'
+    assert(xInput.size() == (n, 1)), f'input mismatch: {xTraining.size()}, {xInput.size()}'
     
     # Property: |x - y|^2 = |x|^2 + |y|^2 - 2<x, y>
     xInputL2 = (xInput.T ** 2).sum(dim=1, keepdim=True).expand(size=(m, 1))
     xTrainingL2 = (xTraining ** 2).sum(dim=1, keepdim=True)
     xDotX = xTraining @ xInput
-    return xInputL2 + xTrainingL2 - 2 * xDotX
-
+    K = torch.exp(-(xInputL2 + xTrainingL2 - xDotX) / (2 * variance))
+    return K
 
 
 
 def trainingGaussianKernel(x: torch.Tensor, variance: float) -> torch.Tensor:
-    ''' returns the training gaussian kernel matrix on matrix x.
+    ''' returns the training gaussian kernel matrix on matrix x, (m, n)
 
     Args:
         x (torch.Tensor): (m, n) matrix
@@ -54,6 +56,20 @@ def trainingGaussianKernel(x: torch.Tensor, variance: float) -> torch.Tensor:
 
     # Then we follow K(x, z) = exp(-1 * squareL2Diff / (2 * variance))
     return torch.exp(kernel / (-2 * variance))
+
+def gaussianKernel(x1: torch.Tensor, x2: torch.Tensor, variance: float) -> float:
+    ''' return the gaussian kernel dot product of 2 vectors, (n, 1) x (n, 1)
+
+    Args:
+        x1: (n, 1) first vector
+        x2: (n, 1) second vector
+        variance: variance of normal distribution
+    Returns:
+        K(x1, x2) where K = RBF
+    '''
+    assert(x2.size() == x1.size() and x2.dim() == 2 and x2.size()[1] == 0), f'expect 2 column vectors, received {x1.size()} and {x2.size()}'
+    l2 = ((x2 - x1) ** 2).sum(dim=0)
+    return torch.exp(-l2 / (2 * variance)).tolist()[0][0]
 
     
 
@@ -83,6 +99,12 @@ def errorVector(u: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     ''' returns the error vector E = U - Y s.t. E[i] = u(i) - y(i)
 
     Also handles size mismatch assertions
+
+    Args:
+        u: prediction vector, (m, 1)
+        y: training vector, (m, 1)
+    Returns:
+        error vector u - y
     '''
 
     assert(u.size() == y.size()), f'size mismatch: u = {u.size()}, y = {y.size()}'
@@ -98,6 +120,15 @@ def prediction(
         b: float, 
         kernel: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 ) -> float:
+    ''' give confidence level of a prediction (negative = class -1, positive = class 1)
+
+    Args:
+        xInput: input array
+        x: training set input
+        y: training set output
+        alpha: Lagrangian vector
+        b: y-intercept (?)
+        kernel: function on (m, n), (n, 1) (just use KBF in most cases)'''
     K = kernel(x, xInput)    #(m, 1)
     Beta = alpha * y        #(m, 1)
     U = (K.T @ Beta).flatten()
@@ -107,3 +138,40 @@ def prediction(
     
     return U.tolist()[0]
 
+
+def updateLagrangians(
+        x: torch.Tensor,
+        y: torch.Tensor,
+        alpha: torch.Tensor,
+        E: torch.Tensor,
+        C: float,
+        i1: int,
+        i2: int,
+        kernel: Callable[[torch.Tensor, torch.Tensor], float],
+) -> None:
+    
+    alpha1, alpha2 = float(alpha[i1, 0]), float(alpha[i2, 0])
+    y1, y2 = float(y[i1, 0]), float(y[i2, 0])
+    x1, x2 = x[i1], x[i2]
+    E1, E2 = float(E[i1, 0]), float(E[i2, 0])
+
+    # compute L,H bounds
+    if y1 != y2:
+        L = max(0, alpha2 - alpha1)
+        H = min(C,     C + alpha2 - alpha1)
+    else:
+        L = max(0, alpha1 + alpha2 - C)
+        H = min(C,     alpha1 + alpha2)
+    if L == H:
+        return
+
+
+    eta = kernel(x1, x1) + kernel(x2, x2) - 2 * kernel(x1, x2)
+    if eta <= 0:
+        return
+
+    alpha2New = alpha2 + y2 * (E1 - E2) / eta
+    alpha2New = max(L, min(H, alpha2New))
+    alpha1New = alpha1  + y1 * y2 * (alpha2 - alpha2New)
+
+    alpha[i1, 0], alpha[i2, 0] = alpha1New, alpha2New
