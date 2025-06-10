@@ -3,8 +3,10 @@ from typing import Callable
 
 # boilerplate stuffs
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-n = 300
-m = 5000
+def seperate():
+    print()
+    print('-' * 100)
+    print()
 
 ########################
 ### Kernel functions ###
@@ -21,7 +23,7 @@ def predictionGaussianKernel(xTraining: torch.Tensor, xInput: torch.Tensor, vari
         dot product of the two kernelized vectors of x1 and x2.
 
     '''
-    _, n = xTraining.size()
+    m, n = xTraining.size()
     assert(xInput.size() == (n, 1)), f'input mismatch: {xTraining.size()}, {xInput.size()}'
     
     # Property: |x - y|^2 = |x|^2 + |y|^2 - 2<x, y>
@@ -31,7 +33,13 @@ def predictionGaussianKernel(xTraining: torch.Tensor, xInput: torch.Tensor, vari
     K = torch.exp(-(xInputL2 + xTrainingL2 - 2 * xDotX) / (2 * variance))
     return K
 
-
+print('Test predictionGaussianKernel')
+xTest = torch.tensor([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11, 12, 13, 14, 15]], dtype= torch.float32, device=device)
+xInputTest = torch.tensor([[0, 2, 4, 6, 8]], dtype = torch.float32, device=device).T
+print(f'xTest = {xTest.tolist()}\nxInputTest = {xInputTest.flatten().tolist()}')
+print(f'gaussian kernel: {predictionGaussianKernel(xTest, xInputTest, variance= 4).tolist()}')
+print('Exit test')
+seperate()
 
 def trainingGaussianKernel(x: torch.Tensor, variance: float) -> torch.Tensor:
     ''' returns the training gaussian kernel matrix on matrix x, (m, n)
@@ -57,6 +65,13 @@ def trainingGaussianKernel(x: torch.Tensor, variance: float) -> torch.Tensor:
     # Then we follow K(x, z) = exp(-1 * squareL2Diff / (2 * variance))
     return torch.exp(kernel / (-2 * variance))
 
+print('Test trainingGaussianKernel')
+xTest = torch.tensor([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11, 12, 13, 14, 15]], dtype= torch.float32, device=device)
+print(f'xTest = {xTest.tolist()}')
+print(f'gaussian kernel: {trainingGaussianKernel(xTest, 4).tolist()}')
+print('Exit test')
+seperate()
+
 def gaussianKernel(x1: torch.Tensor, x2: torch.Tensor, variance: float) -> float:
     ''' return the gaussian kernel dot product of 2 vectors, (n, 1) x (n, 1)
 
@@ -76,6 +91,19 @@ def gaussianKernel(x1: torch.Tensor, x2: torch.Tensor, variance: float) -> float
     l2 = ((x1 - x2) ** 2).sum(dim=0)
     gauss = torch.exp(-1 * l2 / (2 * variance))
     return gauss.item()
+
+print('Test gaussianKernel')
+print('\n1. test on 1d array')
+x1Test = torch.tensor([1, 2, 3, 4, 5], dtype=torch.float32, device=device)
+x2Test = torch.tensor([1, 3, 5, 7, 9], dtype=torch.float32, device=device)
+print(f'x1 = {x1Test}\nx2 = {x2Test}')
+print(f'gaussian kernel: {gaussianKernel(x1Test, x2Test, 4)}')
+print('\n2. test on 2d array')
+x1Test = x1Test.unsqueeze(dim=1)
+x2Test = x2Test.unsqueeze(dim=1)
+print(f'x1 = {x1Test}\nx2 = {x2Test}')
+print(f'gaussian kernel: {gaussianKernel(x1Test, x2Test, 4)}')
+seperate()
 
 def trainPrediction(x: torch.Tensor, y: torch.Tensor, alpha: torch.Tensor, b: float, kernel: Callable[[torch.Tensor], torch.Tensor]) -> torch.Tensor:
     ''' returns the prediction matrix U given x, y, alpha, b
@@ -193,19 +221,11 @@ def updateLagrangians(
     if eta <= 0:
         return
 
-    print(f'L: {L}, H: {H}, eta: {eta}')
 
     alpha2New = alpha2 + y2 * (E1 - E2) / eta
-    print(f'alpha2 unclipped: {alpha2New}')
-
     alpha2New = max(L, min(H, alpha2New))
-    print(f'alpha2 clipped: {alpha2New}')
-
     alpha1New = alpha1  + y1 * y2 * (alpha2 - alpha2New)
-    print(f'alpha1: {alpha1New}')
-
     alpha[i1, 0], alpha[i2, 0] = alpha1New, alpha2New
-
     print('exit update lagrangians\n')
 
 
