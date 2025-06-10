@@ -6,9 +6,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 n = 300
 m = 5000
 
-###
-### Kernel functions
-###
+########################
+### Kernel functions ###
+########################
 
 def predictionGaussianKernel(xTraining: torch.Tensor, xInput: torch.Tensor, variance: float) -> torch.Tensor:
     ''' returns the Gaussian (RBF) Kernel of the given column vectors, (m, n) x (n, 1)
@@ -28,7 +28,7 @@ def predictionGaussianKernel(xTraining: torch.Tensor, xInput: torch.Tensor, vari
     xInputL2 = (xInput.T ** 2).sum(dim=1, keepdim=True).expand(size=(m, 1))
     xTrainingL2 = (xTraining ** 2).sum(dim=1, keepdim=True)
     xDotX = xTraining @ xInput
-    K = torch.exp(-(xInputL2 + xTrainingL2 - xDotX) / (2 * variance))
+    K = torch.exp(-(xInputL2 + xTrainingL2 - 2 * xDotX) / (2 * variance))
     return K
 
 
@@ -52,7 +52,7 @@ def trainingGaussianKernel(x: torch.Tensor, variance: float) -> torch.Tensor:
     # Applying to matrix, we havexLen
     # xLen(expressed s.t. every row is the same) + xLen(expressed s.t. every column is the same) + x @ X.T (m, m)
     # So each element [i][j] is |x(i) - x(j)|^2
-    kernel = xLen.unsqueeze(1).expand(size=(m, m)) + xLen.unsqueeze(0).expand(size=(m, m)) - x @ x.T
+    kernel = xLen.unsqueeze(1).expand(size=(m, m)) + xLen.unsqueeze(0).expand(size=(m, m)) - 2 * (x @ x.T)
 
     # Then we follow K(x, z) = exp(-1 * squareL2Diff / (2 * variance))
     return torch.exp(kernel / (-2 * variance))
@@ -67,11 +67,15 @@ def gaussianKernel(x1: torch.Tensor, x2: torch.Tensor, variance: float) -> float
     Returns:
         K(x1, x2) where K = RBF
     '''
-    assert(x2.size() == x1.size() and x2.dim() == 2 and x2.size()[1] == 0), f'expect 2 column vectors, received {x1.size()} and {x2.size()}'
-    l2 = ((x2 - x1) ** 2).sum(dim=0)
-    return torch.exp(-l2 / (2 * variance)).tolist()[0][0]
+    equivalent = x1.size() == x2.size()
+    oneD = x1.dim() == 1
+    twoD = x1.dim() == 2
+    assert(equivalent), f'expect equivalent vectors, got x1 = {x1.size()}, x2 = {x2.size()}'
+    assert(oneD or twoD), f'expect both to be 1D or 2D, received {x1.dim()}D'
 
-    
+    l2 = ((x1 - x2) ** 2).sum(dim=0)
+    gauss = torch.exp(-1 * l2 / (2 * variance))
+    return gauss.item()
 
 def trainPrediction(x: torch.Tensor, y: torch.Tensor, alpha: torch.Tensor, b: float, kernel: Callable[[torch.Tensor], torch.Tensor]) -> torch.Tensor:
     ''' returns the prediction matrix U given x, y, alpha, b
@@ -94,6 +98,10 @@ def trainPrediction(x: torch.Tensor, y: torch.Tensor, alpha: torch.Tensor, b: fl
     U = K @ Beta
     U += b
     return U
+
+##################################
+### Functions dedicated to SMO ###
+##################################
 
 def errorVector(u: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     ''' returns the error vector E = U - Y s.t. E[i] = u(i) - y(i)
@@ -149,7 +157,22 @@ def updateLagrangians(
         i2: int,
         kernel: Callable[[torch.Tensor, torch.Tensor], float],
 ) -> None:
-    
+    ''' Given i1 and i2, update the Lagrangian
+
+    Args:
+        x: (m, n) x input
+        y: (m, 1) y output where y[i] in {-1, 1}
+        alpha: (m, 1) Lagrangian
+        E: (m, 1) error vector E = U - Y
+        C: diff 
+        i1: first Lagrangian
+        i2: second Lagrangian
+        kernel: K(x1, x2)-> <K(x1), K(x2)>
+    Returns:
+        nothing, though alpha[i1] and alpha[i2] are changed.
+    '''
+
+    print('\nenter update lagrangian')
     alpha1, alpha2 = float(alpha[i1, 0]), float(alpha[i2, 0])
     y1, y2 = float(y[i1, 0]), float(y[i2, 0])
     x1, x2 = x[i1], x[i2]
@@ -170,8 +193,19 @@ def updateLagrangians(
     if eta <= 0:
         return
 
+    print(f'L: {L}, H: {H}, eta: {eta}')
+
     alpha2New = alpha2 + y2 * (E1 - E2) / eta
+    print(f'alpha2 unclipped: {alpha2New}')
+
     alpha2New = max(L, min(H, alpha2New))
+    print(f'alpha2 clipped: {alpha2New}')
+
     alpha1New = alpha1  + y1 * y2 * (alpha2 - alpha2New)
+    print(f'alpha1: {alpha1New}')
 
     alpha[i1, 0], alpha[i2, 0] = alpha1New, alpha2New
+
+    print('exit update lagrangians\n')
+
+
