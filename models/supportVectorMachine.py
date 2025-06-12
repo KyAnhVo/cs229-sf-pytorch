@@ -1,4 +1,3 @@
-from math import inf
 import torch
 from typing import Callable, Tuple
 
@@ -214,6 +213,42 @@ seperate()
 
 #########################################################################################################################################
 
+def chooseIndices(
+    y: torch.Tensor,
+    alpha: torch.Tensor,
+    U: torch.Tensor,
+    E: torch.Tensor,
+    C: float
+) -> Tuple[int, int]:
+    
+    def violatesKKT(index: int) -> bool:
+        epsilon = 1e-8
+        objective = y[index, 0].item() * U[index, 0].item()
+        if 1 - epsilon <= objective and objective <= 1 + epsilon:
+            return False
+        currAlpha = alpha[index, 0].item()
+        if currAlpha == 0:
+            return objective < 1 - epsilon
+        elif currAlpha == C:
+            return objective > 1 + epsilon
+        return True
+    
+    m, _ = alpha.size()
+    i1, i2 = -1, -1
+    secondCache = []
+
+    for i in range(m):
+        if i1 == -1 and violatesKKT(i):
+            i1 = i
+            continue
+        if 
+
+    # TODO: implement 2nd loop
+
+    return i1, i2
+
+#########################################################################################################################################
+
 def updateLagrangians(
         x: torch.Tensor,
         y: torch.Tensor,
@@ -251,12 +286,15 @@ def updateLagrangians(
     else:
         L = max(0, alpha1 + alpha2 - C)
         H = min(C,     alpha1 + alpha2)
+
     if L == H:
         # TODO: solve the L == H case.
         pass
 
 
     eta = kernel(x1, x1) + kernel(x2, x2) - 2 * kernel(x1, x2)
+
+    # Should not happen if chosen kernel and i1, i2 are correct.
     if eta <= 0:
         return False
 
@@ -280,7 +318,7 @@ seperate()
 
 #########################################################################################################################################
 
-def getB(
+def updateB(
     alpha: torch.Tensor,
     x: torch.Tensor,
     y: torch.Tensor,
@@ -318,7 +356,8 @@ kernel = lambda x1, x2: gaussianKernel(x1, x2, 4)
 print(f'Params: C = {C}, i1 = {i1}, i2 = {i2}, b = {b}')
 print(f'x = {xTest}\ny = {yTest.flatten()}\nalpha = {alphaTest.flatten()}\nE = {eTest.flatten()}')
 print(f'alpha1Prev = {alpha1Prev}, alpha2Prev = {alpha2Prev}')
-b = getB(alpha=alphaTest, x=xTest, y=yTest, b=b, E=eTest, C=C, i1=i1, i2=i2, alpha1Prev=alpha1Prev, alpha2Prev=alpha2Prev, kernel= lambda x1, x2: gaussianKernel(x1, x2, 4))
+b = updateB(alpha=alphaTest, x=xTest, y=yTest, b=b, E=eTest, C=C, i1=i1, i2=i2, alpha1Prev=alpha1Prev, alpha2Prev=alpha2Prev, kernel= lambda x1, x2: gaussianKernel(x1, x2, 4))
 print(f'NEW B: b = {b}')
 seperate()
 
+#########################################################################################################################################
