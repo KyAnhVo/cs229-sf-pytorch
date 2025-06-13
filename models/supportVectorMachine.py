@@ -214,6 +214,7 @@ seperate()
 #########################################################################################################################################
 
 def chooseIndices(
+    x: torch.Tensor,
     y: torch.Tensor,
     alpha: torch.Tensor,
     U: torch.Tensor,
@@ -236,15 +237,30 @@ def chooseIndices(
     m, _ = alpha.size()
     i1, i2 = -1, -1
     secondCache = []
-
+    
+    # First loop
     for i in range(m):
         if i1 == -1 and violatesKKT(i):
             i1 = i
             continue
-        if 
+        currAlpha = alpha[i, 0].item()
+        if 0 < currAlpha and currAlpha < C:
+            secondCache.append(i)
+    
+    if i1 == -1:
+        return (-1, -1) # indicates that alphas are good already
 
-    # TODO: implement 2nd loop
+    err1 = E[i1, 0].item()
 
+    # Second loop
+    secondCache = [i for i in secondCache if not torch.equal(x[i1], x[i])]
+    if secondCache:
+        i2 = max(secondCache, key= lambda i: abs(E[i, 0].item() - err1))
+        return i1, i2
+    
+    # Third loop
+    allValidIndexes = [i for i in range(m) if not x[i1].equal(x[i])]
+    i2 = max(allValidIndexes, key= lambda i: abs(E[i, 0].item() - err1))
     return i1, i2
 
 #########################################################################################################################################
