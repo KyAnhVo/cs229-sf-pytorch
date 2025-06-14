@@ -1,6 +1,7 @@
 import torch
 from typing import Callable, Tuple
 
+
 # boilerplate stuffs
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 def seperate():
@@ -260,8 +261,69 @@ def chooseIndices(
     
     # Third loop
     allValidIndexes = [i for i in range(m) if not x[i1].equal(x[i])]
+    if not allValidIndexes:
+        return -1, -1
     i2 = max(allValidIndexes, key= lambda i: abs(E[i, 0].item() - err1))
     return i1, i2
+
+print('Test chooseIndices')
+
+print('\nTest 1: base case alpha[i] == 0 for all i in [0, m)')
+xTest = torch.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]], dtype= torch.float32)
+yTest = torch.tensor([[1], [-1], [-1], [1]], dtype= torch.float32)
+b = 4.5
+C = 6
+alphaTest = torch.tensor([[0], [0], [0], [0]], dtype= torch.float32)
+uTest = trainPrediction(xTest, yTest, alphaTest, b, kernel= lambda x: trainingGaussianKernel(x, 4))
+eTest = errorVector(uTest, yTest)
+i1, i2 = chooseIndices(xTest, yTest, alphaTest, uTest, eTest, C)
+print(f'x: {xTest}\ny: {yTest}\nalpha: {alphaTest}\nb, C: {b, C}\nu: {uTest}\ne: {eTest}')
+print(f'RESULT: i1, i2: {i1, i2}')
+
+print('\n######')
+
+print('\nTest 2: alpha[i] random, secondCache nonepty')
+alphaTest = torch.tensor([[1], [-2], [3], [-10]], dtype= torch.float32)
+uTest = trainPrediction(xTest, yTest, alphaTest, b, kernel= lambda x: trainingGaussianKernel(x, 4))
+eTest = errorVector(uTest, yTest)
+i1, i2 = chooseIndices(xTest, yTest, alphaTest, uTest, eTest, C)
+print(f'x: {xTest}\ny: {yTest}\nalpha: {alphaTest}\nb, C: {b, C}\nu: {uTest}\ne: {eTest}')
+print(f'RESULT: i1, i2: {i1, i2}')
+
+print('\n######')
+
+print('\nTest 3: alpha[i] random, secondCache empty')
+alphaTest = torch.tensor([[-7], [-8], [9], [-10]])
+uTest = trainPrediction(xTest, yTest, alphaTest, b, kernel= lambda x: trainingGaussianKernel(x, 4))
+eTest = errorVector(uTest, yTest)
+i1, i2 = chooseIndices(xTest, yTest, alphaTest, uTest, eTest, C)
+print(f'x: {xTest}\ny: {yTest}\nalpha: {alphaTest}\nb, C: {b, C}\nu: {uTest}\ne: {eTest}')
+print(f'RESULT: i1, i2: {i1, i2}')
+
+print('\n######')
+
+print('\nTest 4: no KKT‐violations (should return (-1,-1))')
+alphaTest = torch.zeros(4,1)
+# Manually pick U so that y*U >= 1 for all i, hence no KKT violations when alpha=0
+uTest = torch.tensor([[ 1.0], [-1.0], [-1.0], [ 1.0]], dtype=torch.float32)
+eTest = uTest - yTest
+i1, i2 = chooseIndices(xTest, yTest, alphaTest, uTest, eTest, C)
+print(f'x: {xTest}\ny: {yTest}\nalpha: {alphaTest}\nU: {uTest}\nE: {eTest}')
+print(f'RESULT: i1, i2: {i1, i2}  # expect (-1, -1)')
+
+print('\n######')
+
+print('\nTest 5: third‐loop fallback (identical rows → no valid i2, expect (-1,-1))')
+xTest = torch.tensor([[1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3]], dtype= torch.float32)
+alphaTest = torch.zeros(4,1)  # first loop will pick i1 but no secondCache
+uTest = torch.zeros(4,1)      # error values irrelevant
+eTest = uTest - yTest
+i1, i2 = chooseIndices(xTest, yTest, alphaTest, uTest, eTest, C)
+print(f'x (all same): {xTest}\ny: {yTest}\nalpha: {alphaTest}\nU: {uTest}\nE: {eTest}')
+print(f'RESULT: i1, i2: {i1, i2}  # expect (-1, -1)')
+
+seperate()
+
 
 #########################################################################################################################################
 
