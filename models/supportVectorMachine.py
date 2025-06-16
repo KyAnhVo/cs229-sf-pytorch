@@ -1,5 +1,11 @@
 import torch
 from typing import Tuple
+from enum import Enum
+
+class UpdateVal(Enum):
+    SUCCESS = 0
+    ETA_ERROR = 1
+    L_EQUALS_H = 2
 
 
 # boilerplate stuffs
@@ -266,8 +272,7 @@ def updateLagrangians(
         H = min(C, alpha1 + alpha2)
 
     if L == H:
-        # TODO: solve the L == H case.
-        pass
+        return False
 
     kernel = lambda x1, x2: gaussianKernel(x1, x2, variance)
     eta = kernel(x1, x1) + kernel(x2, x2) - 2 * kernel(x1, x2)
@@ -332,10 +337,39 @@ def updateUE(
         deltaAlpha1: float,
         deltaAlpha2: float,
         deltaB: float,
+        variance: float,
 ) -> None:
-
-    VARIANCE = 4.5
-    alpha1Term = y1 * deltaAlpha1 * predictionGaussianKernel(x, x1, VARIANCE)
-    alpha2Term = y2 * deltaAlpha2 * predictionGaussianKernel(x, x2, VARIANCE)
+    alpha1Term = y1 * deltaAlpha1 * predictionGaussianKernel(x, x1, variance)
+    alpha2Term = y2 * deltaAlpha2 * predictionGaussianKernel(x, x2, variance)
     U += alpha1Term + alpha2Term - deltaB
-    E = U - y
+    E[:] = errorVector(u= U, y= y)
+
+#########################################################################################################################################
+
+def SVM(x: torch.Tensor, y: torch.Tensor, C: float, variance: float) -> Tuple[torch.Tensor, float]:
+    ''' Returns alpha vector and b for an SVM implementation
+
+    Args:
+        x (torch.Tensor): (m, n) matrix of inputs.
+        y (torch.Tensor): (m, 1) matrix of output where y[i] in {-1, 1} for all i.
+        C (float): regularization module
+        variance (float): variance of the Gaussian kernel
+    Returns:
+        (alpha, b): used for using prediction() to call functions
+    '''
+
+    assert(x.dim() == 2), 'expect matrix x, i.e. 2D tensor.'
+    m, n = x.size()
+    assert(y.dim() == 2 and y.size() == (m, 1)), 'expect column vecotr y, i.e. y is a (m, 1) matrix'
+
+    alpha = torch.zeros(size= (m, 1), dtype= torch.float32)
+    b = 0
+    U = trainPrediction(x, y, alpha, b, variance)
+    E = errorVector(u= U, y= y)
+
+    # the 2 values are arbitrary, should be tuned
+    currentNonupdate = 0
+    MAX_NONUPDATE_TILL_RANDOM_SELECTION = 7
+    MAX_NONUPDATE_TILL_CONVERGENCE = 10
+
+    return alpha, b
