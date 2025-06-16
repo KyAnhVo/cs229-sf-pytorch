@@ -40,7 +40,7 @@ class SVM:
         self._initializeU()
         self.E = self.U - self.y
 
-    def gaussianKernel(self, x1: torch.Tensor, x2: torch.Tensor) -> float:
+    def _gaussianKernel(self, x1: torch.Tensor, x2: torch.Tensor) -> float:
         ''' return the gaussian kernel dot product of 2 vectors, (n, 1) x (n, 1)
 
         Args:
@@ -59,7 +59,7 @@ class SVM:
         gauss = torch.exp(-1 * l2 / (2 * self.variance))
         return gauss.item()
 
-    def predictionGaussianKernel(self, x: torch.Tensor) -> torch.Tensor:
+    def _predictionGaussianKernel(self, x: torch.Tensor) -> torch.Tensor:
         ''' returns the matrix K s.t. K[i] = K(self.x[i], x)
     
         Args:
@@ -98,7 +98,7 @@ class SVM:
         Args:
             x (torch.Tensor): input for prediction'''
 
-        K = self.predictionGaussianKernel(x)
+        K = self._predictionGaussianKernel(x)
         Beta = self.alpha * self.y        #(m, 1)
         U = (K.T @ Beta).flatten()
         U += self.b
@@ -109,7 +109,7 @@ class SVM:
         self.U = self.K @ Beta
         self.U += self.b
 
-    def chooseIndices(self) -> Tuple[int, int]:
+    def _chooseIndices(self) -> Tuple[int, int]:
     
         def violatesKKT(index: int) -> bool:
             epsilon = 1e-8
@@ -153,7 +153,7 @@ class SVM:
         i2 = max(allValidIndexes, key= lambda i: abs(self.E[i, 0].item() - err1))
         return i1, i2
 
-    def updateLagrangians(self, i1, i2) -> LagrangeUpdateStatus:
+    def _updateLagrangians(self, i1, i2) -> LagrangeUpdateStatus:
         ''' Given i1 and i2, update the Lagrangian
 
         Args:
@@ -165,7 +165,6 @@ class SVM:
 
         alpha1, alpha2 = float(self.alpha[i1, 0]), float(self.alpha[i2, 0])
         y1, y2 = float(self.y[i1, 0]), float(self.y[i2, 0])
-        x1, x2 = self.x[i1], self.x[i2]
         E1, E2 = float(self.E[i1, 0]), float(self.E[i2, 0])
 
         # compute L,H bounds
@@ -179,8 +178,7 @@ class SVM:
         if L == H:
             return LagrangeUpdateStatus.NO_MOVE_L_EQUALS_H
 
-        kernel = lambda x1, x2: self.gaussianKernel(x1, x2)
-        eta = kernel(x1, x1) + kernel(x2, x2) - 2 * kernel(x1, x2)
+        eta = self.K[i1, i1].item() + self.K[i2, i2].item() - 2 * self.K[i1, i2].item()
 
         # Should not happen if chosen kernel and i1, i2 are correct.
         if eta <= 0:
@@ -193,7 +191,7 @@ class SVM:
 
         return LagrangeUpdateStatus.UPDATED
 
-    def updateB(self, i1: int, i2: int, alpha1Prev: float, alpha2Prev: float) -> None:
+    def _updateB(self, i1: int, i2: int, alpha1Prev: float, alpha2Prev: float) -> None:
         ''' Update b after changing the lagrangians.
 
         Args:
@@ -202,13 +200,11 @@ class SVM:
             alpha1Prev (float): previous value of first Lagrangian
             alpha2Prev (float): previous value of second Lagrangian
         '''
-        kernel = lambda x1, x2: self.gaussianKernel(x1, x2)
 
         a1, a2 = self.alpha[i1, 0].item(), self.alpha[i2, 0].item()
-        x1, x2 = self.x[i1], self.x[i2]
         y1, y2 = self.y[i1, 0].item(), self.y[i2, 0].item()
         E1, E2 = self.E[i1, 0].item(), self.E[i2, 0].item()
-        k11, k22, k12 = kernel(x1, x1), kernel(x2, x2), kernel(x1, x2)
+        k11, k22, k12 = self.K[i1, i1].item(), self.K[i2, i2].item(), self.K[i1, i2].item()
 
         b1 = E1 + y1 * (a1 - alpha1Prev) * k11 + y2 * (a2 - alpha2Prev) * k12 + self.b
         b2 = E2 + y1 * (a1 - alpha1Prev) * k12 + y2 * (a2 - alpha2Prev) * k22 + self.b
@@ -223,7 +219,7 @@ class SVM:
         else: # both bounded
             self.b = 0.5 * (b1 + b2)
 
-    def updateUAndE(self, i1: int, i2: int, alpha1Prev: float, alpha2Prev: float, bOld: float) -> None:
+    def _updateUAndE(self, i1: int, i2: int, alpha1Prev: float, alpha2Prev: float, bOld: float) -> None:
         y1, y2 = self.y[i1, 0].item(), self.y[i2, 0].item()
         deltaAlpha1 = self.alpha[i1, 0].item() - alpha1Prev
         deltaAlpha2 = self.alpha[i2, 0].item() - alpha2Prev
@@ -231,7 +227,7 @@ class SVM:
 
         firstTerm = y1 * deltaAlpha1 * self.K[:, i1].unsqueeze(dim= 1)
         secondTerm = y2 * deltaAlpha2 * self.K[:, i2].unsqueeze(dim= 1)
-        self.U += firstTerm + secondTerm - deltaB
+        self.U += firstTerm + secondTerm + deltaB
 
         self.E[:] = self.U - self.y
 
