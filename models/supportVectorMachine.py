@@ -4,7 +4,7 @@ from enum import Enum
 
 class LagrangeUpdateStatus(Enum):
     UPDATED = 0             # updated successfully
-    NO_MOVE_ETA = 1         # eta <= 0 error
+    NO_MOVE_ETA_NULL = 1    # eta <= 0 error
     NO_MOVE_L_EQUALS_H = 2  # L == H degenerate box
 
 class SVM:
@@ -184,7 +184,7 @@ class SVM:
 
         # Should not happen if chosen kernel and i1, i2 are correct.
         if eta <= 0:
-            return LagrangeUpdateStatus.NO_MOVE_ETA
+            return LagrangeUpdateStatus.NO_MOVE_ETA_NULL
 
         alpha2New = alpha2 + y2 * (E1 - E2) / eta
         alpha2New = max(L, min(H, alpha2New))
