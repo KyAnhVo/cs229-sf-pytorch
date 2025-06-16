@@ -1,5 +1,7 @@
 import torch
 import random
+import numpy as np
+from sklearn import svm as sksvm
 from typing import Tuple
 from enum import Enum
 
@@ -58,8 +60,13 @@ class SVM:
         nonMoveCount = 0 
         NON_MOVE_COUNT_UNTIL_RANDOM = 20
         NON_MOVE_COUNT_UNTIL_TERMINATE = 100
+        
+        epochs = 0
 
         while nonMoveCount < NON_MOVE_COUNT_UNTIL_TERMINATE:
+            print(epochs, '' if nonMoveCount < NON_MOVE_COUNT_UNTIL_RANDOM else 'randoming')
+            epochs += 1
+
             i1, i2 = -1, -1
             
             # Choose indices logic
@@ -159,7 +166,7 @@ class SVM:
             (t, -1):    Data is degenerate: all x's are equivalent.
         '''
         def violatesKKT(index: int) -> bool:
-            epsilon = 1e-8
+            epsilon = 1e-3
             objective = self.y[index, 0].item() * self.U[index, 0].item()
             if 1 - epsilon <= objective and objective <= 1 + epsilon:
                 return False
@@ -275,19 +282,46 @@ class SVM:
 
         firstTerm = y1 * deltaAlpha1 * self.K[:, i1].unsqueeze(dim= 1)
         secondTerm = y2 * deltaAlpha2 * self.K[:, i2].unsqueeze(dim= 1)
-        self.U += firstTerm + secondTerm + deltaB
+        self.U += firstTerm + secondTerm - deltaB
 
         self.E[:] = self.U - self.y
 
 ##########################################################################################################
+def test_smo_on_synthetic():
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-def main():
-    svm = SVM(
-            x= torch.Tensor([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11, 12, 13, 14, 15]]),
-            y= torch.Tensor([[-1], [1], [1]]),
-            C= 2,
-            variance= 4)
+    torch.manual_seed(0)
+    # 1) Make a tiny linearly separable 2D toy dataset:
+    m = 100
+    X_pos = np.random.randn(m//2, 2) + np.array([2, 2])
+    X_neg = np.random.randn(m//2, 2) + np.array([-2, -2])
+    X = np.vstack([X_pos, X_neg])
+    y = np.hstack([np.ones(m//2), -1*np.ones(m//2)]).reshape(-1, 1)
+
+    # Convert to torch
+    X_t = torch.from_numpy(X).float().to(device)
+    y_t = torch.from_numpy(y).float().to(device)
+
+    # 2) Train your SVM (RBF)
+    svm = SVM(x=X_t, y=y_t, variance=1.0, C=1.0)
+    svm.train()
+
+    # 3) Make predictions on the training set
+    preds = np.array([np.sign(svm.prediction(torch.from_numpy(x.reshape(-1,1)).float().to(device)))
+                      for x in X]).flatten()
+
+    train_acc = (preds == y.flatten()).mean()
+    print(f"SMO train acc on toy data: {train_acc:.3f}")
+
+    # 4) Cross-check against scikit-learn’s SVC with the same kernel & params
+    clf = sksvm.SVC(C=1.0, kernel='rbf', gamma=1.0/(2*1.0), tol=1e-3)
+    clf.fit(X, y.flatten())
+    sk_preds = clf.predict(X)
+    sk_acc = (sk_preds == y.flatten()).mean()
+    print(f"sklearn SVC train acc: {sk_acc:.3f}")
+
     
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    test_smo_on_synthetic()
+
