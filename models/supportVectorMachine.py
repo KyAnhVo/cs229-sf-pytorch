@@ -1,4 +1,5 @@
 import torch
+import random
 from typing import Tuple
 from enum import Enum
 
@@ -54,9 +55,40 @@ class SVM:
 
     def train(self):
         # subject to change
-        staticCount = 0 
-        STATIC_COUNT_UNTIL_RANDOM = 20
-        STATIC_COUNT_UNTIL_TERMINATE = 100
+        nonMoveCount = 0 
+        NON_MOVE_COUNT_UNTIL_RANDOM = 20
+        NON_MOVE_COUNT_UNTIL_TERMINATE = 100
+
+        while nonMoveCount < NON_MOVE_COUNT_UNTIL_TERMINATE:
+            i1, i2 = -1, -1
+            
+            # Choose indices logic
+            if nonMoveCount < NON_MOVE_COUNT_UNTIL_RANDOM:
+                i1, i2 = self._chooseIndices()
+            else:
+                while i1 == i2:
+                    i1, i2 = random.randrange(self.m), random.randrange(self.m)
+
+            if i1 == -1: # Converged
+                break
+            elif i2 == -1: # Data is very degenerate
+                raise Exception('Degenerate data, will cause eta == 0')
+
+            alpha1Prev = self.alpha[i1, 0].item()
+            alpha2Prev = self.alpha[i2, 0].item()
+            bPrev = self.b
+            
+            updateResult = self._updateLagrangians(i1, i2)
+            if updateResult == LagrangeUpdateStatus.NO_MOVE_ETA_NULL:
+                raise Exception('Kernel error or degenerate data')
+            elif updateResult == LagrangeUpdateStatus.NO_MOVE_L_EQUALS_H:
+                nonMoveCount += 1
+                continue
+
+            self._updateB(i1, i2, alpha1Prev, alpha2Prev)
+            self._updateUAndE(i1, i2, alpha1Prev, alpha2Prev, bPrev)
+        
+
 
     def _gaussianKernel(self, x1: torch.Tensor, x2: torch.Tensor) -> float:
         ''' return the gaussian kernel dot product of 2 vectors, (n, 1) x (n, 1)
@@ -115,8 +147,17 @@ class SVM:
         self.U = self.K @ Beta
         self.U += self.b
 
+
+
     def _chooseIndices(self) -> Tuple[int, int]:
+        ''' choose 2 indices for optimizing Lagrangian.
     
+        Let any number in [0, m) be denoted as t.
+        Return cases for i1 and i2:
+            (t, t):     2 indices to optimize
+            (-1, -1):   Converged (can't find any index that violates KKT conditions
+            (t, -1):    Data is degenerate: all x's are equivalent.
+        '''
         def violatesKKT(index: int) -> bool:
             epsilon = 1e-8
             objective = self.y[index, 0].item() * self.U[index, 0].item()
@@ -155,7 +196,8 @@ class SVM:
         # Third loop
         allValidIndexes = [i for i in range(self.m) if not self.x[i1].equal(self.x[i])]
         if not allValidIndexes:
-            return -1, -1
+            return i1, -1
+
         i2 = max(allValidIndexes, key= lambda i: abs(self.E[i, 0].item() - err1))
         return i1, i2
 
@@ -237,5 +279,15 @@ class SVM:
 
         self.E[:] = self.U - self.y
 
+##########################################################################################################
 
+def main():
+    svm = SVM(
+            x= torch.Tensor([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10], [11, 12, 13, 14, 15]]),
+            y= torch.Tensor([[-1], [1], [1]]),
+            C= 2,
+            variance= 4)
+    
 
+if __name__ == '__main__':
+    main()
