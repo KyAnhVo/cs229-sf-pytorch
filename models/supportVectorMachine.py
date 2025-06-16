@@ -40,6 +40,24 @@ class SVM:
         self._initializeU()
         self.E = self.U - self.y
 
+    def prediction(self, x: torch.Tensor) -> float:
+        ''' give confidence level of a prediction (negative = class -1, positive = class 1)
+
+        Args:
+            x (torch.Tensor): input for prediction'''
+
+        K = self._predictionGaussianKernel(x)
+        Beta = self.alpha * self.y        #(m, 1)
+        U = (K.T @ Beta).flatten()
+        U += self.b
+        return U.item()
+
+    def train(self):
+        # subject to change
+        staticCount = 0 
+        STATIC_COUNT_UNTIL_RANDOM = 20
+        STATIC_COUNT_UNTIL_TERMINATE = 100
+
     def _gaussianKernel(self, x1: torch.Tensor, x2: torch.Tensor) -> float:
         ''' return the gaussian kernel dot product of 2 vectors, (n, 1) x (n, 1)
 
@@ -91,18 +109,6 @@ class SVM:
 
         # Then we follow K(x, z) = exp(-1 * squareL2Diff / (2 * variance))
         self.K = torch.exp(kernel / (-2 * self.variance))
-
-    def prediction(self, x: torch.Tensor) -> float:
-        ''' give confidence level of a prediction (negative = class -1, positive = class 1)
-
-        Args:
-            x (torch.Tensor): input for prediction'''
-
-        K = self._predictionGaussianKernel(x)
-        Beta = self.alpha * self.y        #(m, 1)
-        U = (K.T @ Beta).flatten()
-        U += self.b
-        return U.item()
 
     def _initializeU(self):
         Beta = self.alpha * self.y    # (m, 1)
