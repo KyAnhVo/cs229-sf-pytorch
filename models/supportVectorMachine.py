@@ -1,5 +1,5 @@
 import torch
-from typing import Callable, Tuple
+from typing import Tuple
 
 
 # boilerplate stuffs
@@ -44,11 +44,6 @@ def predictionGaussianKernel(xTraining: torch.Tensor, xInput: torch.Tensor, vari
     K = torch.exp(-(xInputL2 + xTrainingL2 - 2 * xDotX) / (2 * variance))
     return K
 
-print('Test predictionGaussianKernel')
-print(f'xTest = {xTest}\nxInputTest = {xInputTest.flatten()}')
-print(f'gaussian kernel: {predictionGaussianKernel(xTest, xInputTest, variance= 4)}')
-seperate()
-
 #########################################################################################################################################
 
 def trainingGaussianKernel(x: torch.Tensor, variance: float) -> torch.Tensor:
@@ -75,11 +70,6 @@ def trainingGaussianKernel(x: torch.Tensor, variance: float) -> torch.Tensor:
     # Then we follow K(x, z) = exp(-1 * squareL2Diff / (2 * variance))
     return torch.exp(kernel / (-2 * variance))
 
-print('Test trainingGaussianKernel')
-print(f'xTest = {xTest}')
-print(f'gaussian kernel: {trainingGaussianKernel(xTest, 4)}')
-seperate()
-
 #########################################################################################################################################
 
 def gaussianKernel(x1: torch.Tensor, x2: torch.Tensor, variance: float) -> float:
@@ -102,19 +92,6 @@ def gaussianKernel(x1: torch.Tensor, x2: torch.Tensor, variance: float) -> float
     gauss = torch.exp(-1 * l2 / (2 * variance))
     return gauss.item()
 
-print('Test gaussianKernel')
-print('\n1. test on 1d array')
-x1Test = torch.tensor([1, 2, 3, 4, 5], dtype=torch.float32, device=device)
-x2Test = torch.tensor([1, 3, 5, 7, 9], dtype=torch.float32, device=device)
-print(f'x1 = {x1Test.flatten()}\nx2 = {x2Test.flatten()}')
-print(f'gaussian kernel: {gaussianKernel(x1Test, x2Test, 4)}')
-print('\n2. test on 2d array')
-x1Test = x1Test.unsqueeze(dim=1)
-x2Test = x2Test.unsqueeze(dim=1)
-print(f'x1 = {x1Test.flatten()}\nx2 = {x2Test.flatten()}')
-print(f'gaussian kernel: {gaussianKernel(x1Test, x2Test, 4)}')
-seperate()
-
 #########################################################################################################################################
 
 def prediction(
@@ -123,7 +100,7 @@ def prediction(
         y: torch.Tensor, 
         alpha: torch.Tensor, 
         b: float, 
-        kernel: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+        variance: float,        
 ) -> float:
     ''' give confidence level of a prediction (negative = class -1, positive = class 1)
 
@@ -134,17 +111,12 @@ def prediction(
         alpha: Lagrangian vector
         b: y-intercept (?)
         kernel: function on (m, n), (n, 1) (just use KBF in most cases)'''
-    K = kernel(x, xInput)    #(m, 1)
+
+    K = predictionGaussianKernel(x, xInput, variance)    #(m, 1)
     Beta = alpha * y        #(m, 1)
     U = (K.T @ Beta).flatten()
     U += b
     return U.item()
-
-print('Test prediction')
-kernel = lambda x, y: predictionGaussianKernel(xTraining=x, xInput=y, variance=4)
-print(f'input = {xInputTest.flatten()}\nx = {xTest}\ny = {yTest.flatten()}\nalpha = {alphaTest.flatten()}')
-print(f'prediction is: {prediction(xInput=xInputTest, x=xTest, y=yTest, alpha=alphaTest, b=b, kernel=kernel)}')
-seperate()
 
 #########################################################################################################################################
 
@@ -157,7 +129,7 @@ def trainPrediction(
     y: torch.Tensor,
     alpha: torch.Tensor,
     b: float,
-    kernel: Callable[[torch.Tensor], torch.Tensor]
+    variance: float,
 ) -> torch.Tensor:
     ''' returns the prediction matrix U given x, y, alpha, b
 
@@ -174,18 +146,11 @@ def trainPrediction(
     assert(y.size() == (m, 1)), f'y.size() = {y.size()} not (m, 1)'
     assert(alpha.size() == (m, 1)), f'alpha.size() = {alpha.size()} not (m, 1)'
 
-    K = kernel(x)       # (m, m)
+    K = trainingGaussianKernel(x, variance)       # (m, m)
     Beta = alpha * y    # (m, 1)
     U = K @ Beta
     U += b
     return U
-
-print('Test trainPrediction')
-print(f'input = {xInputTest}\nx = {xTest}\ny = {yTest.flatten()}\nalpha = {alphaTest.flatten()}\nb = {b}')
-kernel = lambda x: trainingGaussianKernel(x, 4)
-uTest = trainPrediction(x= xTest, y= yTest, alpha= alphaTest, b= b, kernel= kernel)
-print(f'OUTPUT: U = {uTest.flatten()}')
-seperate()
 
 #########################################################################################################################################
 
@@ -205,12 +170,6 @@ def errorVector(u: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     assert(u.dim() == 1 or (u.dim() == 2 and u.size()[1] == 1)), f'expect collumn vector or array'
 
     return u - y
-
-print('Test errorVector')
-print(f'U = {uTest.flatten()}\nY = {yTest.flatten()}')
-eTest = errorVector(uTest, yTest)
-print(f'OUTPUT: E = {eTest.flatten()}')
-seperate()
 
 #########################################################################################################################################
 
@@ -266,65 +225,6 @@ def chooseIndices(
     i2 = max(allValidIndexes, key= lambda i: abs(E[i, 0].item() - err1))
     return i1, i2
 
-print('Test chooseIndices')
-
-print('\nTest 1: base case alpha[i] == 0 for all i in [0, m)')
-xTest = torch.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]], dtype= torch.float32)
-yTest = torch.tensor([[1], [-1], [-1], [1]], dtype= torch.float32)
-b = 4.5
-C = 6
-alphaTest = torch.tensor([[0], [0], [0], [0]], dtype= torch.float32)
-uTest = trainPrediction(xTest, yTest, alphaTest, b, kernel= lambda x: trainingGaussianKernel(x, 4))
-eTest = errorVector(uTest, yTest)
-i1, i2 = chooseIndices(xTest, yTest, alphaTest, uTest, eTest, C)
-print(f'x: {xTest}\ny: {yTest}\nalpha: {alphaTest}\nb, C: {b, C}\nu: {uTest}\ne: {eTest}')
-print(f'RESULT: i1, i2: {i1, i2}')
-
-print('\n######')
-
-print('\nTest 2: alpha[i] random, secondCache nonepty')
-alphaTest = torch.tensor([[1], [-2], [3], [-10]], dtype= torch.float32)
-uTest = trainPrediction(xTest, yTest, alphaTest, b, kernel= lambda x: trainingGaussianKernel(x, 4))
-eTest = errorVector(uTest, yTest)
-i1, i2 = chooseIndices(xTest, yTest, alphaTest, uTest, eTest, C)
-print(f'x: {xTest}\ny: {yTest}\nalpha: {alphaTest}\nb, C: {b, C}\nu: {uTest}\ne: {eTest}')
-print(f'RESULT: i1, i2: {i1, i2}')
-
-print('\n######')
-
-print('\nTest 3: alpha[i] random, secondCache empty')
-alphaTest = torch.tensor([[-7], [-8], [9], [-10]])
-uTest = trainPrediction(xTest, yTest, alphaTest, b, kernel= lambda x: trainingGaussianKernel(x, 4))
-eTest = errorVector(uTest, yTest)
-i1, i2 = chooseIndices(xTest, yTest, alphaTest, uTest, eTest, C)
-print(f'x: {xTest}\ny: {yTest}\nalpha: {alphaTest}\nb, C: {b, C}\nu: {uTest}\ne: {eTest}')
-print(f'RESULT: i1, i2: {i1, i2}')
-
-print('\n######')
-
-print('\nTest 4: no KKT‐violations (should return (-1,-1))')
-alphaTest = torch.zeros(4,1)
-# Manually pick U so that y*U >= 1 for all i, hence no KKT violations when alpha=0
-uTest = torch.tensor([[ 1.0], [-1.0], [-1.0], [ 1.0]], dtype=torch.float32)
-eTest = uTest - yTest
-i1, i2 = chooseIndices(xTest, yTest, alphaTest, uTest, eTest, C)
-print(f'x: {xTest}\ny: {yTest}\nalpha: {alphaTest}\nU: {uTest}\nE: {eTest}')
-print(f'RESULT: i1, i2: {i1, i2}  # expect (-1, -1)')
-
-print('\n######')
-
-print('\nTest 5: third‐loop fallback (identical rows → no valid i2, expect (-1,-1))')
-xTest = torch.tensor([[1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3]], dtype= torch.float32)
-alphaTest = torch.zeros(4,1)  # first loop will pick i1 but no secondCache
-uTest = torch.zeros(4,1)      # error values irrelevant
-eTest = uTest - yTest
-i1, i2 = chooseIndices(xTest, yTest, alphaTest, uTest, eTest, C)
-print(f'x (all same): {xTest}\ny: {yTest}\nalpha: {alphaTest}\nU: {uTest}\nE: {eTest}')
-print(f'RESULT: i1, i2: {i1, i2}  # expect (-1, -1)')
-
-seperate()
-
-
 #########################################################################################################################################
 
 def updateLagrangians(
@@ -335,7 +235,7 @@ def updateLagrangians(
         C: float,
         i1: int,
         i2: int,
-        kernel: Callable[[torch.Tensor, torch.Tensor], float]
+        variance: float
 ) -> bool:
     ''' Given i1 and i2, update the Lagrangian
 
@@ -347,7 +247,7 @@ def updateLagrangians(
         C: diff 
         i1: first Lagrangian
         i2: second Lagrangian
-        kernel: K(x1, x2)-> <K(x1), K(x2)>
+        variance: variance of Gauss kernel
     Returns:
         old alpha[i1] and alpha[i2], though alpha[i1] and alpha[i2] are changed.
     '''
@@ -360,16 +260,16 @@ def updateLagrangians(
     # compute L,H bounds
     if y1 != y2:
         L = max(0, alpha2 - alpha1)
-        H = min(C,     C + alpha2 - alpha1)
+        H = min(C, C + alpha2 - alpha1)
     else:
         L = max(0, alpha1 + alpha2 - C)
-        H = min(C,     alpha1 + alpha2)
+        H = min(C, alpha1 + alpha2)
 
     if L == H:
         # TODO: solve the L == H case.
         pass
 
-
+    kernel = lambda x1, x2: gaussianKernel(x1, x2, variance)
     eta = kernel(x1, x1) + kernel(x2, x2) - 2 * kernel(x1, x2)
 
     # Should not happen if chosen kernel and i1, i2 are correct.
@@ -381,18 +281,6 @@ def updateLagrangians(
     alpha1New = alpha1  + y1 * y2 * (alpha2 - alpha2New)
     alpha[i1, 0], alpha[i2, 0] = alpha1New, alpha2New
     return True
-
-print('Test updateLagrangians')
-C = 4 
-i1, i2 = 2, 0
-kernel = lambda x1, x2: gaussianKernel(x1, x2, 4)
-print(f'Params: C = {C}, i1 = {i1}, i2 = {i2}')
-print(f'x = {xTest}\ny = {yTest.flatten()}\nalpha = {alphaTest.flatten()}\nE = {eTest.flatten()}')
-alpha1Prev, alpha2Prev = alphaTest[i1, 0].item(), alphaTest[i2, 0].item()
-updateLagrangians(x= xTest, y= yTest, alpha= alphaTest, E= eTest, C= C, i1= i1, i2= i2, kernel= kernel)
-print(f'\nnew Lagrangian vector:\nalpha = {alphaTest.flatten()}')
-print(f'Old alphas: {alpha1Prev} {alpha2Prev}')
-seperate()
 
 #########################################################################################################################################
 
@@ -407,9 +295,10 @@ def updateB(
     i2: int,
     alpha1Prev: float,
     alpha2Prev: float,
-    kernel: Callable[[torch.Tensor, torch.Tensor], float],
+    variance: float,
 ) -> float:
-    
+    kernel = lambda x1, x2: gaussianKernel(x1, x2, variance)
+
     a1, a2 = alpha[i1, 0].item(), alpha[i2, 0].item()
     x1, x2 = x[i1], x[i2]
     y1, y2 = y[i1, 0].item(), y[i2, 0].item()
@@ -429,13 +318,24 @@ def updateB(
     else: # both bounded
         return 0.5 * (b1 + b2)
 
-print('Test getB')
-kernel = lambda x1, x2: gaussianKernel(x1, x2, 4)
-print(f'Params: C = {C}, i1 = {i1}, i2 = {i2}, b = {b}')
-print(f'x = {xTest}\ny = {yTest.flatten()}\nalpha = {alphaTest.flatten()}\nE = {eTest.flatten()}')
-print(f'alpha1Prev = {alpha1Prev}, alpha2Prev = {alpha2Prev}')
-b = updateB(alpha=alphaTest, x=xTest, y=yTest, b=b, E=eTest, C=C, i1=i1, i2=i2, alpha1Prev=alpha1Prev, alpha2Prev=alpha2Prev, kernel= lambda x1, x2: gaussianKernel(x1, x2, 4))
-print(f'NEW B: b = {b}')
-seperate()
-
 #########################################################################################################################################
+
+def updateUE(
+        U: torch.Tensor,
+        E: torch.Tensor,
+        x: torch.Tensor,
+        y: torch.Tensor,
+        x1: torch.Tensor,
+        x2: torch.Tensor,
+        y1: float,
+        y2: float,
+        deltaAlpha1: float,
+        deltaAlpha2: float,
+        deltaB: float,
+) -> None:
+
+    VARIANCE = 4.5
+    alpha1Term = y1 * deltaAlpha1 * predictionGaussianKernel(x, x1, VARIANCE)
+    alpha2Term = y2 * deltaAlpha2 * predictionGaussianKernel(x, x2, VARIANCE)
+    U += alpha1Term + alpha2Term - deltaB
+    E = U - y
