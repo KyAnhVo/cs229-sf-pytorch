@@ -61,11 +61,8 @@ class SVM:
         NON_MOVE_COUNT_UNTIL_RANDOM = 20
         NON_MOVE_COUNT_UNTIL_TERMINATE = 100
         
-        epochs = 0
 
         while nonMoveCount < NON_MOVE_COUNT_UNTIL_TERMINATE:
-            print(epochs, '' if nonMoveCount < NON_MOVE_COUNT_UNTIL_RANDOM else 'randoming')
-            epochs += 1
 
             i1, i2 = -1, -1
             
@@ -80,7 +77,8 @@ class SVM:
                 break
             elif i2 == -1: # Data is very degenerate
                 raise Exception('Degenerate data, will cause eta == 0')
-
+            
+            nonMoveCount = 0
             alpha1Prev = self.alpha[i1, 0].item()
             alpha2Prev = self.alpha[i2, 0].item()
             bPrev = self.b
